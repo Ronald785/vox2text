@@ -2,6 +2,7 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { getFFmpeg } from "@/lib/ffmpeg";
 import { fetchFile } from "@ffmpeg/util";
+import axios from "axios";
 
 type Status = "optimize" | "waiting" | "optimizing" | "generating" | "success";
 
@@ -11,6 +12,7 @@ export default function Main() {
     const [status, setStatus] = useState<Status>("optimize");
     const [previewURL, setPreviewURL] = useState<string | null>(null);
     const [progress, setProgress] = useState(0);
+    const [audioTranscription, setAudioTranscription] = useState("");
 
     function handleFile(event: ChangeEvent<HTMLInputElement>) {
         const { files } = event.currentTarget;
@@ -102,6 +104,7 @@ export default function Main() {
         setProgress(0);
         setStatus("optimizing");
         console.log("Iniciando conversão...");
+        setAudioTranscription("");
 
         const audioFile = await optimizeAudio(file, fileType);
 
@@ -111,9 +114,39 @@ export default function Main() {
         // Atualiza o preview com o novo áudio
         setFile(audioFile);
         setFileType("audio");
-        setStatus("waiting"); // Ou "success" se quiser manter um feedback
+        setStatus("generating");
+        const transcription = await requestTranscription(audioFile);
 
-        // Aqui você pode continuar o processo de upload/transcrição se quiser
+        console.log("transcription: ", transcription);
+
+        if (transcription) {
+            setAudioTranscription(transcription);
+
+            setStatus("success");
+        } else {
+            setStatus("waiting");
+        }
+    }
+
+    async function requestTranscription(file: File) {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+            const response = await axios.post("/api/transcription", formData, {
+                headers: {
+                    "Content-Type": "multipart/form-data",
+                },
+            });
+
+            return response.data.text;
+        } catch (error: any) {
+            console.error(
+                "Erro na transcrição:",
+                error.response?.data || error.message
+            );
+            return null;
+        }
     }
 
     useEffect(() => {
@@ -135,6 +168,10 @@ export default function Main() {
                     id="transcription"
                     className="resize-none border border-zinc-700 rounded flex-1 min-h-64 p-4"
                     placeholder="Transcrição do áudio..."
+                    value={audioTranscription}
+                    onChange={(e) => {
+                        setAudioTranscription(e.target.value);
+                    }}
                 ></textarea>
                 <textarea
                     name="resume"
