@@ -1,7 +1,9 @@
 "use client";
 import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import { getFFmpeg } from "@/lib/ffmpeg";
+import { fetchFile } from "@ffmpeg/util";
 
-type Status = "optimize" | "optimizing" | "waiting" | "generating" | "success";
+type Status = "optimize" | "waiting" | "optimizing" | "generating" | "success";
 
 export default function Main() {
     const [file, setFile] = useState<File | null>(null);
@@ -29,14 +31,89 @@ export default function Main() {
         }
     }
 
+    async function optimizeAudio(file: File, type: "video" | "audio") {
+        const ffmpeg = await getFFmpeg();
+
+        const inputFileName = type === "video" ? "input.mp4" : "input.mp3";
+        const outputFileName = "audio.mp3";
+
+        await ffmpeg.writeFile(inputFileName, await fetchFile(file));
+
+        ffmpeg.on("progress", (progress) => {
+            if (
+                typeof progress.progress !== "number" ||
+                isNaN(progress.progress)
+            )
+                return;
+
+            let percentage = parseFloat((progress.progress * 100).toFixed(2));
+            if (percentage > 100) percentage = 100;
+            setProgress(percentage);
+            console.log("Convert progress: " + percentage + "%");
+        });
+
+        const args =
+            type === "video"
+                ? [
+                      "-i",
+                      inputFileName,
+                      "-map",
+                      "0:a",
+                      "-b:a",
+                      "16k",
+                      "-ar",
+                      "16000",
+                      "-ac",
+                      "1",
+                      "-acodec",
+                      "libmp3lame",
+                      outputFileName,
+                  ]
+                : [
+                      "-i",
+                      inputFileName,
+                      "-b:a",
+                      "16k",
+                      "-ar",
+                      "16000",
+                      "-ac",
+                      "1",
+                      "-acodec",
+                      "libmp3lame",
+                      outputFileName,
+                  ];
+
+        await ffmpeg.exec(args);
+
+        const data = await ffmpeg.readFile(outputFileName);
+        const audioFileBlob = new Blob([data], { type: "audio/mpeg" });
+
+        return new File([audioFileBlob], "audio.mp3", {
+            type: "audio/mpeg",
+        });
+    }
+
     async function handleUploadVideo(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
 
         if (!file || !fileType) return;
 
-        setStatus("waiting");
-        console.log("Arquivo pronto para ser enviado ou transcrito.");
-        // Aqui você pode iniciar o processo de transcrição sem conversão
+        setStatus("optimizing");
+        setProgress(0);
+        setStatus("optimizing");
+        console.log("Iniciando conversão...");
+
+        const audioFile = await optimizeAudio(file, fileType);
+
+        setProgress(100);
+        console.log("Conversão finalizada!");
+
+        // Atualiza o preview com o novo áudio
+        setFile(audioFile);
+        setFileType("audio");
+        setStatus("waiting"); // Ou "success" se quiser manter um feedback
+
+        // Aqui você pode continuar o processo de upload/transcrição se quiser
     }
 
     useEffect(() => {
@@ -119,7 +196,10 @@ export default function Main() {
                             }}
                         ></div>
                         <span className="relative z-10 text-white">
-                            {status === "optimize" && <p>Enviar</p>}
+                            {status === "optimize" && <p>Otimizar</p>}
+                            {status === "optimizing" && (
+                                <p>Otimizando - {progress}%</p>
+                            )}
                             {status === "waiting" && <p>Transcrever</p>}
                             {status === "generating" && <p>Transcrevendo...</p>}
                             {status === "success" && <p>Finalizado!</p>}
